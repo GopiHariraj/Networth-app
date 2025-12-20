@@ -1,21 +1,10 @@
 import axios from 'axios';
 
-// Dynamically determine API URL based on current hostname
-// This allows mobile devices to connect using the network IP
-const getApiUrl = () => {
-    if (typeof window !== 'undefined') {
-        const hostname = window.location.hostname;
-        const port = 3001;
-        // If accessing via network IP, use that; otherwise use localhost
-        const baseUrl = hostname === 'localhost' || hostname === '127.0.0.1'
-            ? 'http://localhost:3001'
-            : `http://${hostname}:3001`;
-        return `${baseUrl}/api`;
-    }
-    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
-};
+// Use environment variable directly - no dynamic hostname detection
+// NEXT_PUBLIC_API_URL is set at build time and baked into the bundle
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
-const API_URL = getApiUrl();
+
 
 export const apiClient = axios.create({
     baseURL: API_URL,
@@ -30,7 +19,7 @@ apiClient.interceptors.request.use(
     (config) => {
         const token = localStorage.getItem('accessToken');
         if (token) {
-            config.headers.Authorization = `Bearer ${token}`;
+            config.headers.Authorization = `Bearer ${token} `;
         }
         return config;
     },
@@ -52,7 +41,7 @@ apiClient.interceptors.response.use(
             try {
                 const refreshToken = localStorage.getItem('refreshToken');
                 if (refreshToken) {
-                    const response = await axios.post(`${API_URL}/auth/refresh`, {
+                    const response = await axios.post(`${API_URL} /auth/refresh`, {
                         refreshToken,
                     });
 
@@ -60,7 +49,7 @@ apiClient.interceptors.response.use(
                     localStorage.setItem('accessToken', accessToken);
 
                     // Retry original request with new token
-                    originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+                    originalRequest.headers.Authorization = `Bearer ${accessToken} `;
                     return apiClient(originalRequest);
                 }
             } catch (refreshError) {

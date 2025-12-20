@@ -27,7 +27,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     useEffect(() => {
         // Check for token on mount
-        const token = localStorage.getItem('token');
+        const token = localStorage.getItem('accessToken');
         const savedUser = localStorage.getItem('user');
 
         if (token && savedUser) {
@@ -43,7 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, [pathname, router]);
 
     const login = (token: string, userData: User) => {
-        localStorage.setItem('token', token);
+        localStorage.setItem('accessToken', token);
         localStorage.setItem('user', JSON.stringify(userData));
         setUser(userData);
         setIsAuthenticated(true);
@@ -51,7 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     const logout = () => {
-        localStorage.removeItem('token');
+        localStorage.removeItem('accessToken');
         localStorage.removeItem('user');
         setUser(null);
         setIsAuthenticated(false);
