@@ -205,11 +205,11 @@ export default function AIAnalyticsPage() {
                     <ResponsiveContainer width="100%" height={300}>
                         <LineChart data={chartData.data}>
                             <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey={chartData.xKey} />
+                            <XAxis dataKey={chartData.xKey || ''} />
                             <YAxis />
                             <Tooltip formatter={(value: number) => `${currency.symbol} ${value.toLocaleString()}`} />
                             <Legend />
-                            <Line type="monotone" dataKey={chartData.yKey} stroke="#3b82f6" strokeWidth={2} />
+                            <Line type="monotone" dataKey={chartData.yKey || ''} stroke="#3b82f6" strokeWidth={2} />
                         </LineChart>
                     </ResponsiveContainer>
                 );
@@ -218,11 +218,11 @@ export default function AIAnalyticsPage() {
                     <ResponsiveContainer width="100%" height={300}>
                         <BarChart data={chartData.data}>
                             <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey={chartData.xKey} />
+                            <XAxis dataKey={chartData.xKey || ''} />
                             <YAxis />
                             <Tooltip formatter={(value: number) => `${currency.symbol} ${value.toLocaleString()}`} />
                             <Legend />
-                            <Bar dataKey={chartData.yKey} fill="#8b5cf6" />
+                            <Bar dataKey={chartData.yKey || ''} fill="#8b5cf6" />
                         </BarChart>
                     </ResponsiveContainer>
                 );

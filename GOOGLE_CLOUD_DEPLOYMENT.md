@@ -195,6 +195,7 @@ NEXT_PUBLIC_API_URL=http://YOUR_VM_EXTERNAL_IP:3001/api
 > openssl rand -base64 32
 > ```
 http://34.46.102.166:3001/api
+http://35.223.105.239:3001/api
 
 **To get your VM's external IP:**
 ```bash
