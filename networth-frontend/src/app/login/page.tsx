@@ -94,7 +94,7 @@ export default function LoginPage() {
 
                     <div className="text-center text-sm text-slate-500">
                         <p>Demo Credentials:</p>
-                        <p className="font-mono mt-1">admin@example.com / admin123</p>
+                        <p className="font-mono mt-1">admin@fortstec.com / Forts@123</p>
                     </div>
                 </form>
             </div>
