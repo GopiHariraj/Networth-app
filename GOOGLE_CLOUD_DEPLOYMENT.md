@@ -1,4 +1,4 @@
-# Deploy Networth App to Google Cloud Platform (VPS)
+# Deploy Networth App to Google Cloud Platform (VPS)updated
 
 This guide walks you through deploying your networth application on Google Cloud Platform using Compute Engine (Virtual Private Server).
 
