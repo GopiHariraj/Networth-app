@@ -26,21 +26,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
 
     useEffect(() => {
-        // Check for token on mount
-        const token = localStorage.getItem('accessToken');
-        const savedUser = localStorage.getItem('user');
+        // Auto-login with default user (no authentication required)
+        const defaultUser = {
+            id: 'default-user',
+            email: 'user@app.com',
+            name: 'User',
+            role: 'USER'
+        };
 
-        if (token && savedUser) {
-            setUser(JSON.parse(savedUser));
-            setIsAuthenticated(true);
-        } else {
-            // Redirect to login if not authenticated and not on public page
-            const publicPaths = ['/login', '/register'];
-            if (!publicPaths.includes(pathname)) {
-                router.push('/login');
-            }
-        }
-    }, [pathname, router]);
+        setUser(defaultUser);
+        setIsAuthenticated(true);
+    }, []);
 
     const login = (token: string, userData: User) => {
         localStorage.setItem('accessToken', token);
