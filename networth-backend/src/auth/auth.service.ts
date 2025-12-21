@@ -20,20 +20,20 @@ export class AuthService {
         if (!user) return null;
 
         // Check if this is a mock user with plain text password
-        if (user.password) {
+        if ('password' in user && user.password) {
             if (user.password === pass) {
-                const { password, passwordHash, ...result } = user;
+                const { password, ...result } = user as any;
                 return result;
             }
             return null;
         }
 
         // For real database users with argon2 hashed passwords
-        if (user.passwordHash) {
+        if ('passwordHash' in user && user.passwordHash) {
             try {
                 const isValid = await argon2.verify(user.passwordHash, pass);
                 if (isValid) {
-                    const { password, passwordHash, ...result } = user;
+                    const { passwordHash, ...result } = user as any;
                     return result;
                 }
             } catch (error) {
