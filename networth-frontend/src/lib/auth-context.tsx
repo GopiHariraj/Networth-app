@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import apiClient from './api/client';
 
 interface User {
     id: string;
@@ -12,7 +13,7 @@ interface User {
 
 interface AuthContextType {
     user: User | null;
-    login: (token: string, user: User) => void;
+    login: (email: string, password: string) => Promise<void>;
     logout: () => void;
     isAuthenticated: boolean;
 }
@@ -26,24 +27,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
 
     useEffect(() => {
-        // Auto-login with default user (no authentication required)
-        const defaultUser = {
-            id: 'default-user',
-            email: 'user@app.com',
-            name: 'User',
-            role: 'USER'
-        };
+        // Check for existing auth
+        const storedToken = localStorage.getItem('accessToken');
+        const storedUser = localStorage.getItem('user');
 
-        setUser(defaultUser);
-        setIsAuthenticated(true);
+        if (storedToken && storedUser) {
+            try {
+                const userData = JSON.parse(storedUser);
+                setUser(userData);
+                setIsAuthenticated(true);
+            } catch (e) {
+                console.error('Failed to parse stored user', e);
+                localStorage.removeItem('accessToken');
+                localStorage.removeItem('user');
+            }
+        }
     }, []);
 
-    const login = (token: string, userData: User) => {
-        localStorage.setItem('accessToken', token);
-        localStorage.setItem('user', JSON.stringify(userData));
-        setUser(userData);
-        setIsAuthenticated(true);
-        router.push('/');
+    const login = async (email: string, password: string) => {
+        try {
+            const response = await apiClient.post('/auth/login', { email, password });
+            const { accessToken, user: userData } = response.data;
+
+            localStorage.setItem('accessToken', accessToken);
+            localStorage.setItem('user', JSON.stringify(userData));
+            setUser(userData);
+            setIsAuthenticated(true);
+        } catch (error: any) {
+            throw new Error(error.response?.data?.message || 'Login failed');
+        }
     };
 
     const logout = () => {
