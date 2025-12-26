@@ -5,33 +5,75 @@ import Sidebar, { HamburgerButton } from './Sidebar';
 import Calculator from './Calculator';
 import { useAuth } from '../lib/auth-context';
 
+// Breakpoint constants
+const BREAKPOINTS = {
+    MOBILE: 768,
+    TABLET: 1024
+};
+
 export default function Layout({ children }: { children: React.ReactNode }) {
     const { isAuthenticated } = useAuth();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Mobile drawer state
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // Desktop collapse state
     const [isMobile, setIsMobile] = useState(false);
+    const [screenSize, setScreenSize] = useState<'mobile' | 'tablet' | 'desktop'>('desktop');
 
-    // Load sidebar state from localStorage
+    // Initialize and handle responsive behavior
     useEffect(() => {
-        const saved = localStorage.getItem('sidebar-collapsed');
-        if (saved) {
-            setIsSidebarCollapsed(JSON.parse(saved));
-        }
+        const handleResize = () => {
+            const width = window.innerWidth;
 
-        // Detect mobile
-        const checkMobile = () => {
-            setIsMobile(window.innerWidth < 768);
+            // Determine screen size category
+            let newScreenSize: 'mobile' | 'tablet' | 'desktop';
+            if (width < BREAKPOINTS.MOBILE) {
+                newScreenSize = 'mobile';
+                setIsMobile(true);
+                setIsSidebarOpen(false); // Auto-hide on mobile
+            } else if (width < BREAKPOINTS.TABLET) {
+                newScreenSize = 'tablet';
+                setIsMobile(false);
+                setIsSidebarCollapsed(true); // Auto-collapse on tablet
+            } else {
+                newScreenSize = 'desktop';
+                setIsMobile(false);
+                // On desktop, restore user preference from localStorage
+                const saved = localStorage.getItem('sidebar-collapsed');
+                if (saved !== null) {
+                    setIsSidebarCollapsed(JSON.parse(saved));
+                } else {
+                    setIsSidebarCollapsed(false); // Default to expanded
+                }
+            }
+
+            setScreenSize(newScreenSize);
         };
-        checkMobile();
-        window.addEventListener('resize', checkMobile);
-        return () => window.removeEventListener('resize', checkMobile);
+
+        // Initial check
+        handleResize();
+
+        // Add resize listener with debounce for better performance
+        let resizeTimer: NodeJS.Timeout;
+        const debouncedResize = () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(handleResize, 100);
+        };
+
+        window.addEventListener('resize', debouncedResize);
+        return () => {
+            window.removeEventListener('resize', debouncedResize);
+            clearTimeout(resizeTimer);
+        };
     }, []);
 
-    // Save collapse state to localStorage
+    // Save collapse state to localStorage (only on desktop when user manually toggles)
     const toggleCollapse = () => {
         const newState = !isSidebarCollapsed;
         setIsSidebarCollapsed(newState);
-        localStorage.setItem('sidebar-collapsed', JSON.stringify(newState));
+
+        // Only save to localStorage on desktop (user preference)
+        if (screenSize === 'desktop') {
+            localStorage.setItem('sidebar-collapsed', JSON.stringify(newState));
+        }
     };
 
     // Toggle mobile drawer

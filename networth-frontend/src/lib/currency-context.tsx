@@ -28,27 +28,102 @@ interface CurrencyContextType {
     currency: Currency;
     setCurrency: (currency: Currency) => void;
     formatAmount: (amount: number) => string;
+    resetCurrency: () => void;
 }
 
 const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined);
 
 export function CurrencyProvider({ children }: { children: React.ReactNode }) {
     const [currency, setCurrencyState] = useState<Currency>(CURRENCIES[0]); // Default to AED
+    const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
     useEffect(() => {
-        // Load saved currency from localStorage
-        const savedCurrencyCode = localStorage.getItem('preferredCurrency');
-        if (savedCurrencyCode) {
-            const savedCurrency = CURRENCIES.find(c => c.code === savedCurrencyCode);
-            if (savedCurrency) {
-                setCurrencyState(savedCurrency);
+        // Load saved currency from localStorage based on current user
+        const savedUser = localStorage.getItem('user');
+        if (savedUser) {
+            try {
+                const user = JSON.parse(savedUser);
+                const userId = user.id;
+                setCurrentUserId(userId);
+
+                // Load user-specific currency preference
+                const savedCurrencyCode = localStorage.getItem(`preferredCurrency_${userId}`);
+                if (savedCurrencyCode) {
+                    const savedCurrency = CURRENCIES.find(c => c.code === savedCurrencyCode);
+                    if (savedCurrency) {
+                        setCurrencyState(savedCurrency);
+                    }
+                } else {
+                    // Reset to default if no preference for this user
+                    setCurrencyState(CURRENCIES[0]);
+                }
+            } catch (e) {
+                console.error('Error loading user currency preference:', e);
+                setCurrencyState(CURRENCIES[0]);
             }
+        } else {
+            // No user logged in, reset to default
+            setCurrentUserId(null);
+            setCurrencyState(CURRENCIES[0]);
         }
-    }, []);
+    }, []); // Run once on mount
+
+    // Watch for user changes (login/logout)
+    useEffect(() => {
+        const checkUserChange = () => {
+            const savedUser = localStorage.getItem('user');
+
+            if (savedUser) {
+                try {
+                    const user = JSON.parse(savedUser);
+                    const userId = user.id;
+
+                    // If user changed, reload currency
+                    if (userId !== currentUserId) {
+                        setCurrentUserId(userId);
+
+                        // Load user-specific currency preference
+                        const savedCurrencyCode = localStorage.getItem(`preferredCurrency_${userId}`);
+                        if (savedCurrencyCode) {
+                            const savedCurrency = CURRENCIES.find(c => c.code === savedCurrencyCode);
+                            if (savedCurrency) {
+                                setCurrencyState(savedCurrency);
+                            } else {
+                                setCurrencyState(CURRENCIES[0]);
+                            }
+                        } else {
+                            // Reset to default if no preference for this user
+                            setCurrencyState(CURRENCIES[0]);
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error checking user change:', e);
+                }
+            } else if (currentUserId !== null) {
+                // User logged out, reset
+                setCurrentUserId(null);
+                setCurrencyState(CURRENCIES[0]);
+            }
+        };
+
+        // Check on interval (every 500ms)
+        const interval = setInterval(checkUserChange, 500);
+
+        return () => clearInterval(interval);
+    }, [currentUserId]);
 
     const setCurrency = (newCurrency: Currency) => {
         setCurrencyState(newCurrency);
-        localStorage.setItem('preferredCurrency', newCurrency.code);
+
+        // Save with user-specific key
+        if (currentUserId) {
+            localStorage.setItem(`preferredCurrency_${currentUserId}`, newCurrency.code);
+        }
+    };
+
+    const resetCurrency = () => {
+        setCurrencyState(CURRENCIES[0]); // Reset to default (AED)
+        setCurrentUserId(null);
     };
 
     const formatAmount = (amount: number): string => {
@@ -56,7 +131,7 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
     };
 
     return (
-        <CurrencyContext.Provider value={{ currency, setCurrency, formatAmount }}>
+        <CurrencyContext.Provider value={{ currency, setCurrency, formatAmount, resetCurrency }}>
             {children}
         </CurrencyContext.Provider>
     );

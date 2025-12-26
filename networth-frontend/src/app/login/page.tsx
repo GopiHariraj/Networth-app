@@ -85,15 +85,22 @@ export default function LoginPage() {
                         <button
                             type="submit"
                             disabled={loading}
-                            className="w-full bg-white text-purple-600 py-3 rounded-xl font-bold hover:bg-blue-50 transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full bg-white text-blue-600 py-4 rounded-2xl font-black text-lg hover:bg-blue-50 transition-all shadow-xl shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-[1.02] active:scale-[0.98]"
                         >
-                            {loading ? '🔄 Signing In...' : '🔐 Sign In'}
+                            {loading ? (
+                                <div className="flex items-center justify-center gap-2">
+                                    <div className="w-5 h-5 border-3 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                                    <span>Signing In...</span>
+                                </div>
+                            ) : (
+                                "🔐 Sign In"
+                            )}
                         </button>
 
                         <button
                             type="button"
                             onClick={demoLogin}
-                            className="w-full bg-white/10 text-white py-3 rounded-xl font-medium hover:bg-white/20 transition-colors border border-white/30 backdrop-blur-sm"
+                            className="w-full bg-white/10 text-white py-4 rounded-2xl font-bold hover:bg-white/20 transition-all border border-white/30 backdrop-blur-sm text-sm"
                         >
                             ✨ Use Demo Credentials
                         </button>
@@ -101,16 +108,17 @@ export default function LoginPage() {
 
                     {/* Footer */}
                     <div className="mt-8 text-center">
-                        <p className="text-sm text-blue-100">
-                            Demo: admin@fortstec.com / Forts@123
+                        <p className="text-sm text-blue-100 font-medium opacity-80">
+                            Demo Access: admin@fortstec.com / Forts@123
                         </p>
                     </div>
                 </div>
 
                 {/* Bottom Info */}
-                <div className="mt-6 text-center">
-                    <p className="text-white/70 text-sm">
-                        🔒 Secure authentication powered by JWT
+                <div className="mt-8 text-center">
+                    <p className="text-white/60 text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                        Secure authentication powered by Enterprise JWT
                     </p>
                 </div>
             </div>

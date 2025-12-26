@@ -5,6 +5,7 @@ import { AuthProvider } from "../lib/auth-context";
 import { CurrencyProvider } from "../lib/currency-context";
 import { NetWorthProvider } from "../lib/networth-context";
 import Layout from "../components/Layout";
+import SessionTimeout from "../components/auth/SessionTimeout";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -22,6 +23,7 @@ export default function RootLayout({
         <html lang="en">
             <body className={inter.className}>
                 <AuthProvider>
+                    <SessionTimeout />
                     <CurrencyProvider>
                         <NetWorthProvider>
                             <Layout>{children}</Layout>

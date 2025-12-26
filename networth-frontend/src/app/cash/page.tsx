@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { useCurrency } from '../../lib/currency-context';
 import { useNetWorth } from '../../lib/networth-context';
-import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { financialDataApi } from '../../lib/api/financial-data';
 
 interface BankAccount {
     id: string;
@@ -11,527 +12,381 @@ interface BankAccount {
     bankName: string;
     currency: string;
     balance: number;
+    accountType: string;
     lastUpdated: string;
     notes?: string;
 }
 
-interface CashWallet {
-    id: string;
-    walletName: string;
-    balance: number;
-    lastUpdated: string;
-    notes?: string;
-}
-
-const COLORS = ['#3b82f6', '#8b5cf6'];
+const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444'];
 
 export default function CashPage() {
     const { currency } = useCurrency();
-    const { updateCash } = useNetWorth();
+    const { data, refreshNetWorth } = useNetWorth();
     const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
-    const [wallets, setWallets] = useState<CashWallet[]>([]);
-    const [editingBankId, setEditingBankId] = useState<string | null>(null);
-    const [editingWalletId, setEditingWalletId] = useState<string | null>(null);
-    const [periodFilter, setPeriodFilter] = useState('6');
+    const [wallets, setWallets] = useState<BankAccount[]>([]);
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [activeTab, setActiveTab] = useState('Overview');
 
-    const [bankFormData, setBankFormData] = useState({
+    const [formData, setFormData] = useState({
         accountName: '',
         bankName: '',
         currency: 'AED',
         balance: '',
+        accountType: 'Savings',
         notes: ''
     });
 
-    const [walletFormData, setWalletFormData] = useState({
-        walletName: '',
-        balance: '',
-        notes: ''
-    });
-
-    // Load data from localStorage
     useEffect(() => {
-        const savedBanks = localStorage.getItem('networth-cash-bank');
-        const savedWallets = localStorage.getItem('networth-cash-wallet');
-
-        if (savedBanks) {
-            try {
-                setBankAccounts(JSON.parse(savedBanks));
-            } catch (e) {
-                console.error('Failed to load bank accounts', e);
-            }
+        if (data.assets.cash.bankAccounts) {
+            setBankAccounts(data.assets.cash.bankAccounts as BankAccount[]);
         }
-
-        if (savedWallets) {
-            try {
-                setWallets(JSON.parse(savedWallets));
-            } catch (e) {
-                console.error('Failed to load wallets', e);
-            }
+        if (data.assets.cash.wallets) {
+            setWallets(data.assets.cash.wallets as BankAccount[]);
         }
-    }, []);
+    }, [data.assets.cash.bankAccounts, data.assets.cash.wallets]);
 
-    const getTotalBank = () => bankAccounts.reduce((sum, acc) => sum + acc.balance, 0);
-    const getTotalWallet = () => wallets.reduce((sum, w) => sum + w.balance, 0);
-    const getTotalCash = () => getTotalBank() + getTotalWallet();
+    const getTotalBank = () => bankAccounts.reduce((sum, acc) => sum + (Number(acc.balance) || 0), 0);
+    const getTotalWallet = () => wallets.reduce((sum, w) => sum + (Number(w.balance) || 0), 0);
+    const getTotalCash = () => Number(getTotalBank()) + Number(getTotalWallet());
 
-    // Bank Account Functions
-    const handleEditBank = (account: BankAccount) => {
-        setEditingBankId(account.id);
-        setBankFormData({
+    const handleEdit = (account: BankAccount) => {
+        setEditingId(account.id);
+        setFormData({
             accountName: account.accountName,
             bankName: account.bankName,
             currency: account.currency,
             balance: account.balance.toString(),
+            accountType: account.accountType,
             notes: account.notes || ''
         });
+        setActiveTab('Manage Account');
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
-    const handleAddBank = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!bankFormData.accountName || !bankFormData.bankName || !bankFormData.balance) {
+        if (!formData.accountName || !formData.balance) {
             alert('Please fill in all required fields');
             return;
         }
 
-        if (editingBankId) {
-            const updated = bankAccounts.map(acc =>
-                acc.id === editingBankId
-                    ? {
-                        ...acc,
-                        accountName: bankFormData.accountName,
-                        bankName: bankFormData.bankName,
-                        currency: bankFormData.currency,
-                        balance: parseFloat(bankFormData.balance),
-                        lastUpdated: new Date().toISOString(),
-                        notes: bankFormData.notes
-                    }
-                    : acc
-            );
-            setBankAccounts(updated);
-            updateCash(updated, wallets);
-            setEditingBankId(null);
-        } else {
-            const newAccount: BankAccount = {
-                id: Date.now().toString(),
-                accountName: bankFormData.accountName,
-                bankName: bankFormData.bankName,
-                currency: bankFormData.currency,
-                balance: parseFloat(bankFormData.balance),
-                lastUpdated: new Date().toISOString(),
-                notes: bankFormData.notes
+        setIsLoading(true);
+        try {
+            const payload = {
+                accountName: formData.accountName,
+                bankName: formData.bankName || (formData.accountType === 'Wallet' ? 'Cash' : ''),
+                currency: formData.currency,
+                balance: parseFloat(formData.balance),
+                accountType: formData.accountType,
+                notes: formData.notes || ''
             };
-            const updated = [...bankAccounts, newAccount];
-            setBankAccounts(updated);
-            updateCash(updated, wallets);
-        }
 
-        setBankFormData({ accountName: '', bankName: '', currency: 'AED', balance: '', notes: '' });
-    };
+            if (editingId) {
+                await financialDataApi.bankAccounts.update(editingId, payload);
+                setEditingId(null);
+                alert('✅ Record updated successfully!');
+            } else {
+                await financialDataApi.bankAccounts.create(payload);
+                alert('🚀 New record added!');
+            }
 
-    const handleDeleteBank = (id: string) => {
-        if (confirm('Are you sure you want to delete this bank account?')) {
-            const updated = bankAccounts.filter(acc => acc.id !== id);
-            setBankAccounts(updated);
-            updateCash(updated, wallets);
-        }
-    };
-
-    const handleCancelBankEdit = () => {
-        setEditingBankId(null);
-        setBankFormData({ accountName: '', bankName: '', currency: 'AED', balance: '', notes: '' });
-    };
-
-    // Wallet Functions
-    const handleEditWallet = (wallet: CashWallet) => {
-        setEditingWalletId(wallet.id);
-        setWalletFormData({
-            walletName: wallet.walletName,
-            balance: wallet.balance.toString(),
-            notes: wallet.notes || ''
-        });
-    };
-
-    const handleAddWallet = (e: React.FormEvent) => {
-        e.preventDefault();
-
-        if (!walletFormData.walletName || !walletFormData.balance) {
-            alert('Please fill in all required fields');
-            return;
-        }
-
-        if (editingWalletId) {
-            const updated = wallets.map(w =>
-                w.id === editingWalletId
-                    ? {
-                        ...w,
-                        walletName: walletFormData.walletName,
-                        balance: parseFloat(walletFormData.balance),
-                        lastUpdated: new Date().toISOString(),
-                        notes: walletFormData.notes
-                    }
-                    : w
-            );
-            setWallets(updated);
-            updateCash(bankAccounts, updated);
-            setEditingWalletId(null);
-        } else {
-            const newWallet: CashWallet = {
-                id: Date.now().toString(),
-                walletName: walletFormData.walletName,
-                balance: parseFloat(walletFormData.balance),
-                lastUpdated: new Date().toISOString(),
-                notes: walletFormData.notes
-            };
-            const updated = [...wallets, newWallet];
-            setWallets(updated);
-            updateCash(bankAccounts, updated);
-        }
-
-        setWalletFormData({ walletName: '', balance: '', notes: '' });
-    };
-
-    const handleDeleteWallet = (id: string) => {
-        if (confirm('Are you sure you want to delete this wallet?')) {
-            const updated = wallets.filter(w => w.id !== id);
-            setWallets(updated);
-            updateCash(bankAccounts, updated);
+            await refreshNetWorth();
+            setFormData({ accountName: '', bankName: '', currency: 'AED', balance: '', accountType: 'Savings', notes: '' });
+            setActiveTab('Overview');
+        } catch (error) {
+            alert('Failed to save. Please try again.');
+        } finally {
+            setIsLoading(false);
         }
     };
 
-    const handleCancelWalletEdit = () => {
-        setEditingWalletId(null);
-        setWalletFormData({ walletName: '', balance: '', notes: '' });
+    const handleDelete = async (id: string) => {
+        if (confirm('Are you sure you want to delete this record?')) {
+            try {
+                await financialDataApi.bankAccounts.delete(id);
+                await refreshNetWorth();
+            } catch (error) {
+                alert('Failed to delete. Please try again.');
+            }
+        }
     };
 
-    // Chart data
-    const chartData = {
-        bankVsCash: [
-            { name: 'Bank Accounts', value: getTotalBank() },
-            { name: 'Cash Wallets', value: getTotalWallet() }
-        ].filter(item => item.value > 0),
-        trend: Array.from({ length: parseInt(periodFilter) }, (_, i) => ({
-            month: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][i],
-            value: getTotalCash()
-        }))
+    const handleCancel = () => {
+        setEditingId(null);
+        setFormData({ accountName: '', bankName: '', currency: 'AED', balance: '', accountType: 'Savings', notes: '' });
+        setActiveTab('Overview');
     };
+
+    const allocationData = [
+        { name: 'Bank Accounts', value: getTotalBank() },
+        { name: 'Cash Wallets', value: getTotalWallet() }
+    ].filter(item => item.value > 0);
+
+    const accountsByType = [...bankAccounts, ...wallets].reduce((acc: any, curr) => {
+        const existing = acc.find((item: any) => item.name === curr.accountType);
+        if (existing) existing.value += curr.balance;
+        else acc.push({ name: curr.accountType, value: curr.balance });
+        return acc;
+    }, []);
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-900 p-8">
             <div className="max-w-7xl mx-auto">
-                <header className="mb-10">
-                    <h1 className="text-3xl font-bold text-slate-900 dark:text-white">💰 Liquid Cash</h1>
-                    <p className="text-slate-500 mt-2">Manage your bank accounts and cash wallets</p>
+                {/* Header */}
+                <header className="mb-10 flex flex-wrap justify-between items-end gap-4">
+                    <div>
+                        <h1 className="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                            <span className="w-12 h-12 bg-emerald-100 dark:bg-emerald-900/30 rounded-2xl flex items-center justify-center">💰</span>
+                            Liquid Cash Assets
+                        </h1>
+                        <p className="text-slate-500 mt-2">Monitor your real-time liquidity across bank accounts and physical cash</p>
+                    </div>
+
+                    <div className="flex bg-white dark:bg-slate-800 p-1 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+                        {['Overview', 'Bank Accounts', 'Wallets', 'Manage Account'].map(tab => (
+                            <button
+                                key={tab}
+                                onClick={() => setActiveTab(tab)}
+                                className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === tab
+                                    ? 'bg-emerald-600 text-white shadow-md'
+                                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+                                    }`}
+                            >
+                                {tab}
+                            </button>
+                        ))}
+                    </div>
                 </header>
 
                 {/* Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                    <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-6 text-white shadow-lg">
-                        <div className="text-sm opacity-90">Total Liquid Cash</div>
-                        <div className="text-3xl font-bold mt-2">{currency.symbol} {getTotalCash().toLocaleString()}</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                    <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-3xl p-8 text-white shadow-xl shadow-emerald-200 dark:shadow-none">
+                        <div className="text-sm opacity-90 font-medium tracking-wide uppercase">Total Liquidity</div>
+                        <div className="text-4xl font-bold mt-3 font-mono">{currency.symbol} {getTotalCash().toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                        <div className="mt-4 flex items-center gap-2 text-xs bg-white/20 w-fit px-3 py-1 rounded-full backdrop-blur-sm">
+                            Across {bankAccounts.length + wallets.length} Records
+                        </div>
                     </div>
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-                        <div className="text-sm text-slate-500">Bank Balance</div>
-                        <div className="text-2xl font-bold text-slate-900 dark:text-white mt-2">{currency.symbol} {getTotalBank().toLocaleString()}</div>
+                    <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 shadow-sm border border-slate-200 dark:border-slate-700">
+                        <div className="text-sm text-slate-500 font-medium tracking-wide uppercase">Institutional</div>
+                        <div className="text-3xl font-bold text-slate-900 dark:text-white mt-3 font-mono">{currency.symbol} {getTotalBank().toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                        <div className="mt-2 text-xs text-emerald-500 font-bold">{bankAccounts.length} Bank Accounts</div>
                     </div>
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-                        <div className="text-sm text-slate-500">Wallet Cash</div>
-                        <div className="text-2xl font-bold text-slate-900 dark:text-white mt-2">{currency.symbol} {getTotalWallet().toLocaleString()}</div>
+                    <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 shadow-sm border border-slate-200 dark:border-slate-700">
+                        <div className="text-sm text-slate-500 font-medium tracking-wide uppercase">Physical / Wallets</div>
+                        <div className="text-3xl font-bold text-slate-900 dark:text-white mt-3 font-mono">{currency.symbol} {getTotalWallet().toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                        <div className="mt-2 text-xs text-emerald-500 font-bold">{wallets.length} Cash Wallets</div>
                     </div>
                 </div>
 
-                {/* Charts */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-lg font-bold text-slate-900 dark:text-white">Liquid Cash Trend</h3>
-                            <select
-                                value={periodFilter}
-                                onChange={(e) => setPeriodFilter(e.target.value)}
-                                className="px-3 py-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm"
-                            >
-                                <option value="3">3 Months</option>
-                                <option value="6">6 Months</option>
-                                <option value="12">12 Months</option>
-                            </select>
-                        </div>
-                        <ResponsiveContainer width="100%" height={250}>
-                            <LineChart data={chartData.trend}>
-                                <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis dataKey="month" />
-                                <YAxis />
-                                <Tooltip formatter={(value: number) => `${currency.symbol} ${value.toLocaleString()}`} />
-                                <Line type="monotone" dataKey="value" stroke="#10b981" strokeWidth={2} />
-                            </LineChart>
-                        </ResponsiveContainer>
-                    </div>
-
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-                        <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Bank vs Cash Split</h3>
-                        {chartData.bankVsCash.length > 0 ? (
-                            <ResponsiveContainer width="100%" height={250}>
-                                <PieChart>
-                                    <Pie data={chartData.bankVsCash} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
-                                        {chartData.bankVsCash.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                        ))}
-                                    </Pie>
-                                    <Tooltip formatter={(value: number) => `${currency.symbol} ${value.toLocaleString()}`} />
-                                    <Legend />
-                                </PieChart>
-                            </ResponsiveContainer>
-                        ) : (
-                            <div className="flex items-center justify-center h-64 text-slate-400">
-                                No data to display
+                {activeTab === 'Overview' && (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 shadow-sm border border-slate-200 dark:border-slate-700">
+                            <h3 className="text-xl font-bold mb-8 text-slate-900 dark:text-white flex items-center gap-3">
+                                <span className="w-10 h-10 bg-emerald-100 dark:bg-emerald-900/30 rounded-xl flex items-center justify-center">📊</span>
+                                Store of Value
+                            </h3>
+                            <div className="h-[300px]">
+                                {allocationData.length > 0 ? (
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <PieChart>
+                                            <Pie data={allocationData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={70} outerRadius={110} paddingAngle={5}>
+                                                {allocationData.map((entry, index) => (
+                                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                ))}
+                                            </Pie>
+                                            <Tooltip
+                                                formatter={(value: number) => [`${currency.symbol} ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Balance']}
+                                                contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }}
+                                            />
+                                            <Legend iconType="circle" />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                ) : (
+                                    <div className="flex items-center justify-center h-full text-slate-400">No balance data available</div>
+                                )}
                             </div>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 shadow-sm border border-slate-200 dark:border-slate-700">
+                            <h3 className="text-xl font-bold mb-8 text-slate-900 dark:text-white flex items-center gap-3">
+                                <span className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">🏦</span>
+                                Type Distribution
+                            </h3>
+                            <div className="h-[300px]">
+                                {accountsByType.length > 0 ? (
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <PieChart>
+                                            <Pie data={accountsByType} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={70} outerRadius={110} paddingAngle={5}>
+                                                {accountsByType.map((entry: any, index: number) => (
+                                                    <Cell key={`cell-${index}`} fill={COLORS[(index + 2) % COLORS.length]} />
+                                                ))}
+                                            </Pie>
+                                            <Tooltip
+                                                formatter={(value: number) => [`${currency.symbol} ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Balance']}
+                                                contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }}
+                                            />
+                                            <Legend iconType="circle" />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                ) : (
+                                    <div className="flex items-center justify-center h-full text-slate-400">No data available</div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {(activeTab === 'Bank Accounts' || activeTab === 'Wallets') && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        {(activeTab === 'Bank Accounts' ? bankAccounts : wallets).length === 0 ? (
+                            <div className="col-span-full py-20 bg-white dark:bg-slate-800 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700 text-center">
+                                <div className="text-6xl mb-6">🏜️</div>
+                                <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">No records found</h3>
+                                <p className="text-slate-500 mb-8">Start tracking your {activeTab.toLowerCase()} today.</p>
+                                <button
+                                    onClick={() => setActiveTab('Manage Account')}
+                                    className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl transition-all shadow-lg"
+                                >
+                                    Add New Record
+                                </button>
+                            </div>
+                        ) : (
+                            (activeTab === 'Bank Accounts' ? bankAccounts : wallets).map(account => (
+                                <div key={account.id} className="group bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-sm hover:shadow-xl transition-all border border-slate-200 dark:border-slate-700 border-l-8 border-l-emerald-500">
+                                    <div className="flex justify-between items-start mb-6">
+                                        <div>
+                                            <h3 className="text-xl font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 transition-colors uppercase tracking-tight">{account.accountName}</h3>
+                                            <div className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wider">{account.bankName}</div>
+                                        </div>
+                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button onClick={() => handleEdit(account)} className="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-lg">✏️</button>
+                                            <button onClick={() => handleDelete(account.id)} className="p-2 bg-rose-50 dark:bg-rose-900/20 text-rose-500 rounded-lg">🗑️</button>
+                                        </div>
+                                    </div>
+                                    <div className="mt-auto">
+                                        <div className="text-[10px] text-slate-400 font-bold uppercase mb-1">Available Balance</div>
+                                        <div className="text-3xl font-bold text-slate-900 dark:text-white font-mono">
+                                            {currency.symbol}{account.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                        <div className="mt-4 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 p-3 rounded-2xl border border-slate-100 dark:border-slate-800">
+                                            <span className="text-[10px] font-bold text-slate-500 uppercase">{account.accountType}</span>
+                                            <span className="text-[10px] text-slate-400 font-mono">Updated: {new Date(account.lastUpdated || Date.now()).toLocaleDateString()}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))
                         )}
                     </div>
-                </div>
+                )}
 
-                {/* Bank Accounts & Wallets */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* Bank Accounts Section */}
-                    <div>
-                        <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700 mb-6">
-                            <h2 className="text-xl font-bold mb-6 text-slate-900 dark:text-white">
-                                {editingBankId ? '✏️ Edit Bank Account' : '🏦 Add Bank Account'}
+                {activeTab === 'Manage Account' && (
+                    <div className="max-w-3xl mx-auto animate-in fade-in zoom-in duration-300">
+                        <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 shadow-xl border border-slate-200 dark:border-slate-700">
+                            <h2 className="text-2xl font-bold mb-8 text-slate-900 dark:text-white flex items-center gap-3">
+                                <span className="w-10 h-10 bg-emerald-100 dark:bg-emerald-900/30 rounded-xl flex items-center justify-center">
+                                    {editingId ? '✏️' : '➕'}
+                                </span>
+                                {editingId ? 'Edit Financial Account' : 'Register New Asset'}
                             </h2>
-                            <form onSubmit={handleAddBank} className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Account Name *</label>
-                                    <input
-                                        type="text"
-                                        value={bankFormData.accountName}
-                                        onChange={(e) => setBankFormData({ ...bankFormData, accountName: e.target.value })}
-                                        placeholder="e.g., Savings Account"
-                                        required
-                                        className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-green-500 outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Bank Name *</label>
-                                    <input
-                                        type="text"
-                                        value={bankFormData.bankName}
-                                        onChange={(e) => setBankFormData({ ...bankFormData, bankName: e.target.value })}
-                                        placeholder="e.g., ADCB, Emirates NBD"
-                                        required
-                                        className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-green-500 outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Currency</label>
-                                    <select
-                                        value={bankFormData.currency}
-                                        onChange={(e) => setBankFormData({ ...bankFormData, currency: e.target.value })}
-                                        className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-green-500 outline-none"
-                                    >
-                                        <option value="AED">AED</option>
-                                        <option value="USD">USD</option>
-                                        <option value="EUR">EUR</option>
-                                        <option value="INR">INR</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Current Balance *</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={bankFormData.balance}
-                                        onChange={(e) => setBankFormData({ ...bankFormData, balance: e.target.value })}
-                                        placeholder="e.g., 50000"
-                                        required
-                                        className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-green-500 outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Notes</label>
-                                    <textarea
-                                        value={bankFormData.notes}
-                                        onChange={(e) => setBankFormData({ ...bankFormData, notes: e.target.value })}
-                                        placeholder="Optional notes..."
-                                        rows={2}
-                                        className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-green-500 outline-none"
-                                    />
-                                </div>
-                                <div className="flex gap-2">
-                                    {editingBankId && (
-                                        <button
-                                            type="button"
-                                            onClick={handleCancelBankEdit}
-                                            className="flex-1 px-6 py-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-900 dark:text-white font-bold rounded-xl transition-colors"
+                            <form onSubmit={handleSubmit} className="space-y-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Account Type</label>
+                                        <select
+                                            value={formData.accountType}
+                                            onChange={(e) => setFormData({ ...formData, accountType: e.target.value })}
+                                            className="w-full px-5 py-4 rounded-2xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all cursor-pointer"
                                         >
-                                            ✖️ Cancel
-                                        </button>
+                                            <option value="Savings">Savings Account</option>
+                                            <option value="Current">Current Account</option>
+                                            <option value="Fixed Deposit">Fixed Deposit</option>
+                                            <option value="Wallet">Cash Wallet</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                                            {formData.accountType === 'Wallet' ? 'Wallet Name *' : 'Account Name *'}
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={formData.accountName}
+                                            onChange={(e) => setFormData({ ...formData, accountName: e.target.value })}
+                                            placeholder={formData.accountType === 'Wallet' ? 'e.g., Physical Cash' : 'e.g., Salary Account'}
+                                            required
+                                            className="w-full px-5 py-4 rounded-2xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                                        />
+                                    </div>
+                                    {formData.accountType !== 'Wallet' && (
+                                        <div className="md:col-span-2">
+                                            <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Bank / Institution Name *</label>
+                                            <input
+                                                type="text"
+                                                value={formData.bankName}
+                                                onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
+                                                placeholder="e.g., Emirates NBD, ADCB, HSBC"
+                                                required={formData.accountType !== 'Wallet'}
+                                                className="w-full px-5 py-4 rounded-2xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                                            />
+                                        </div>
                                     )}
+                                    <div className="md:col-span-2">
+                                        <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Current Balance ({currency.code}) *</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={formData.balance}
+                                            onChange={(e) => setFormData({ ...formData, balance: e.target.value })}
+                                            placeholder="0.00"
+                                            required
+                                            className="w-full px-5 py-4 rounded-2xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-mono text-xl"
+                                        />
+                                    </div>
+                                    <div className="md:col-span-2">
+                                        <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Additional Notes</label>
+                                        <textarea
+                                            value={formData.notes}
+                                            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                                            placeholder="Notes about this account..."
+                                            rows={2}
+                                            className="w-full px-5 py-4 rounded-2xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all resize-none"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-4 pt-6 border-t border-slate-100 dark:border-slate-700">
+                                    <button
+                                        type="button"
+                                        onClick={handleCancel}
+                                        className="flex-1 px-8 py-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold rounded-2xl transition-all"
+                                    >
+                                        Discard
+                                    </button>
                                     <button
                                         type="submit"
-                                        className="flex-1 px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-green-600/20"
+                                        disabled={isLoading}
+                                        className="flex-[2] px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-bold rounded-2xl transition-all shadow-xl shadow-emerald-500/20 disabled:opacity-50"
                                     >
-                                        {editingBankId ? '💾 Update' : '➕ Add Bank Account'}
+                                        {isLoading ? 'Processing...' : (editingId ? '💾 Save Changes' : '➕ Confirm Registration')}
                                     </button>
                                 </div>
                             </form>
                         </div>
-
-                        {/* Bank Accounts List */}
-                        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                            <div className="p-6 border-b border-slate-200 dark:border-slate-700">
-                                <h2 className="text-xl font-bold text-slate-900 dark:text-white">📋 Bank Accounts ({bankAccounts.length})</h2>
-                            </div>
-                            {bankAccounts.length === 0 ? (
-                                <div className="p-12 text-center">
-                                    <div className="text-6xl mb-4">🏦</div>
-                                    <div className="text-slate-500">No bank accounts added yet</div>
-                                </div>
-                            ) : (
-                                <div className="divide-y divide-slate-200 dark:divide-slate-700">
-                                    {bankAccounts.map(account => (
-                                        <div key={account.id} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                                            <div className="flex justify-between items-start mb-2">
-                                                <div>
-                                                    <div className="font-bold text-slate-900 dark:text-white">{account.accountName}</div>
-                                                    <div className="text-sm text-slate-500">{account.bankName}</div>
-                                                </div>
-                                                <div className="text-right">
-                                                    <div className="font-bold text-green-600 dark:text-green-400">{currency.symbol} {account.balance.toLocaleString()}</div>
-                                                    <div className="text-xs text-slate-400">{account.currency}</div>
-                                                </div>
-                                            </div>
-                                            {account.notes && (
-                                                <div className="text-xs text-slate-400 mb-2">{account.notes}</div>
-                                            )}
-                                            <div className="flex gap-2 justify-between items-center">
-                                                <div className="text-xs text-slate-400">Updated: {new Date(account.lastUpdated).toLocaleDateString()}</div>
-                                                <div className="flex gap-2">
-                                                    <button
-                                                        onClick={() => handleEditBank(account)}
-                                                        className="px-3 py-1 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/20 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-400 rounded-lg text-sm font-medium transition-colors"
-                                                    >
-                                                        ✏️ Edit
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDeleteBank(account.id)}
-                                                        className="px-3 py-1 bg-red-100 hover:bg-red-200 dark:bg-red-900/20 dark:hover:bg-red-900/40 text-red-700 dark:text-red-400 rounded-lg text-sm font-medium transition-colors"
-                                                    >
-                                                        🗑️
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
                     </div>
-
-                    {/* Cash Wallets Section */}
-                    <div>
-                        <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700 mb-6">
-                            <h2 className="text-xl font-bold mb-6 text-slate-900 dark:text-white">
-                                {editingWalletId ? '✏️ Edit Cash Wallet' : '👛 Add Cash Wallet'}
-                            </h2>
-                            <form onSubmit={handleAddWallet} className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Wallet Name *</label>
-                                    <input
-                                        type="text"
-                                        value={walletFormData.walletName}
-                                        onChange={(e) => setWalletFormData({ ...walletFormData, walletName: e.target.value })}
-                                        placeholder="e.g., Pocket Money, Emergency Cash"
-                                        required
-                                        className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Current Balance *</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={walletFormData.balance}
-                                        onChange={(e) => setWalletFormData({ ...walletFormData, balance: e.target.value })}
-                                        placeholder="e.g., 5000"
-                                        required
-                                        className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Notes</label>
-                                    <textarea
-                                        value={walletFormData.notes}
-                                        onChange={(e) => setWalletFormData({ ...walletFormData, notes: e.target.value })}
-                                        placeholder="Optional notes..."
-                                        rows={2}
-                                        className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none"
-                                    />
-                                </div>
-                                <div className="flex gap-2">
-                                    {editingWalletId && (
-                                        <button
-                                            type="button"
-                                            onClick={handleCancelWalletEdit}
-                                            className="flex-1 px-6 py-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-900 dark:text-white font-bold rounded-xl transition-colors"
-                                        >
-                                            ✖️ Cancel
-                                        </button>
-                                    )}
-                                    <button
-                                        type="submit"
-                                        className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-purple-600/20"
-                                    >
-                                        {editingWalletId ? '💾 Update' : '➕ Add Wallet'}
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-
-                        {/* Wallets List */}
-                        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                            <div className="p-6 border-b border-slate-200 dark:border-slate-700">
-                                <h2 className="text-xl font-bold text-slate-900 dark:text-white">📋 Cash Wallets ({wallets.length})</h2>
-                            </div>
-                            {wallets.length === 0 ? (
-                                <div className="p-12 text-center">
-                                    <div className="text-6xl mb-4">👛</div>
-                                    <div className="text-slate-500">No wallets added yet</div>
-                                </div>
-                            ) : (
-                                <div className="divide-y divide-slate-200 dark:divide-slate-700">
-                                    {wallets.map(wallet => (
-                                        <div key={wallet.id} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                                            <div className="flex justify-between items-start mb-2">
-                                                <div className="font-bold text-slate-900 dark:text-white">{wallet.walletName}</div>
-                                                <div className="font-bold text-purple-600 dark:text-purple-400">{currency.symbol} {wallet.balance.toLocaleString()}</div>
-                                            </div>
-                                            {wallet.notes && (
-                                                <div className="text-xs text-slate-400 mb-2">{wallet.notes}</div>
-                                            )}
-                                            <div className="flex gap-2 justify-between items-center">
-                                                <div className="text-xs text-slate-400">Updated: {new Date(wallet.lastUpdated).toLocaleDateString()}</div>
-                                                <div className="flex gap-2">
-                                                    <button
-                                                        onClick={() => handleEditWallet(wallet)}
-                                                        className="px-3 py-1 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/20 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-400 rounded-lg text-sm font-medium transition-colors"
-                                                    >
-                                                        ✏️ Edit
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDeleteWallet(wallet.id)}
-                                                        className="px-3 py-1 bg-red-100 hover:bg-red-200 dark:bg-red-900/20 dark:hover:bg-red-900/40 text-red-700 dark:text-red-400 rounded-lg text-sm font-medium transition-colors"
-                                                    >
-                                                        🗑️
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
+                )}
             </div>
+
+            <style jsx global>{`
+                @keyframes slideIn {
+                    from { transform: translateY(20px); opacity: 0; }
+                    to { transform: translateY(0); opacity: 1; }
+                }
+                .animate-in {
+                    animation: slideIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+                }
+            `}</style>
         </div>
     );
 }

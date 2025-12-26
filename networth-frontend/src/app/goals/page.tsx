@@ -3,23 +3,26 @@
 import React, { useState, useEffect } from 'react';
 import { useCurrency } from '../../lib/currency-context';
 import { useNetWorth } from '../../lib/networth-context';
+import { financialDataApi } from '../../lib/api/financial-data';
 
 export default function GoalsPage() {
     const { currency } = useCurrency();
     const { data: networthData } = useNetWorth();
+    const [isLoading, setIsLoading] = useState(false);
+
     const [goals, setGoals] = useState({
-        commodityType: '',
+        commodityType: 'Gold',
         commodityGrams: '',
-        propertyType: '',
+        propertyType: 'Apartment',
         propertyValue: '',
         monthlyIncome: '',
         cashAndBank: '',
         stocks: '',
         bonds: '',
-        totalNetWorth: ''
     });
 
     const [activeGoal, setActiveGoal] = useState({
+        id: '',
         goalNetWorth: '',
         targetDate: '',
         notes: ''
@@ -28,34 +31,54 @@ export default function GoalsPage() {
     // Use calculated net worth from NetWorthContext
     const currentNetWorth = networthData.netWorth;
 
-    // Load active goal from localStorage
-    useEffect(() => {
-        const saved = localStorage.getItem('activeGoal');
-        if (saved) {
-            try {
-                setActiveGoal(JSON.parse(saved));
-            } catch (e) {
-                console.error('Failed to load active goal', e);
-            }
-        }
-    }, []);
+    // Load goals from API
+    const fetchGoals = async () => {
+        try {
+            setIsLoading(true);
+            const res = await financialDataApi.goals.getAll();
+            const fetchedGoals = res.data;
 
-    // Save active goal to localStorage whenever it changes
-    const saveActiveGoal = () => {
-        if (activeGoal.goalNetWorth && activeGoal.targetDate) {
-            const goalData = {
-                ...activeGoal,
-                currentNetWorth: currentNetWorth,
-                lastUpdated: new Date().toISOString()
-            };
-            localStorage.setItem('activeGoal', JSON.stringify(goalData));
-            alert('✅ Active goal saved and synced to Dashboard!');
-        } else {
-            alert('⚠️ Please enter both Goal Net Worth and Target Date');
+            if (fetchedGoals && fetchedGoals.length > 0) {
+                // Map data from database to state
+                const primaryGoal = fetchedGoals.find((g: any) => g.type === 'NETWORTH');
+                if (primaryGoal) {
+                    setActiveGoal({
+                        id: primaryGoal.id,
+                        goalNetWorth: primaryGoal.targetAmount.toString(),
+                        targetDate: primaryGoal.targetDate.split('T')[0],
+                        notes: primaryGoal.notes || ''
+                    });
+                }
+
+                // Map secondary goals
+                const goldGoal = fetchedGoals.find((g: any) => g.type === 'GOLD');
+                const propertyGoal = fetchedGoals.find((g: any) => g.type === 'PROPERTY');
+                const stocksGoal = fetchedGoals.find((g: any) => g.type === 'STOCKS');
+                const cashGoal = fetchedGoals.find((g: any) => g.type === 'CASH');
+                const bondsGoal = fetchedGoals.find((g: any) => g.type === 'BONDS');
+                const incomeGoal = fetchedGoals.find((g: any) => g.type === 'INCOME');
+
+                setGoals(prev => ({
+                    ...prev,
+                    commodityGrams: goldGoal?.targetAmount.toString() || '',
+                    propertyValue: propertyGoal?.targetAmount.toString() || '',
+                    stocks: stocksGoal?.targetAmount.toString() || '',
+                    cashAndBank: cashGoal?.targetAmount.toString() || '',
+                    bonds: bondsGoal?.targetAmount.toString() || '',
+                    monthlyIncome: incomeGoal?.targetAmount.toString() || '',
+                }));
+            }
+        } catch (e) {
+            console.error('Failed to load goals', e);
+        } finally {
+            setIsLoading(false);
         }
     };
 
-    // Calculate goal progress
+    useEffect(() => {
+        fetchGoals();
+    }, []);
+
     const calculateProgress = () => {
         const goal = parseFloat(activeGoal.goalNetWorth) || 0;
         if (goal === 0) return { percentage: 0, remaining: 0, monthsLeft: 0, monthlyRequired: 0, status: 'ontrack' };
@@ -83,9 +106,72 @@ export default function GoalsPage() {
         setActiveGoal(prev => ({ ...prev, [field]: value }));
     };
 
-    const handleSave = () => {
-        console.log('Saving goals:', goals);
-        alert('Goals saved successfully! 🎯');
+    const saveActiveGoal = async () => {
+        if (activeGoal.goalNetWorth && activeGoal.targetDate) {
+            const payload = {
+                name: 'Primary Net Worth Goal',
+                type: 'NETWORTH',
+                targetAmount: parseFloat(activeGoal.goalNetWorth),
+                targetDate: new Date(activeGoal.targetDate).toISOString(),
+                notes: activeGoal.notes,
+                currentAmount: currentNetWorth
+            };
+
+            try {
+                if (activeGoal.id) {
+                    await financialDataApi.goals.update(activeGoal.id, payload);
+                } else {
+                    await financialDataApi.goals.create(payload);
+                }
+                alert('✅ Active goal saved to database!');
+                fetchGoals();
+            } catch (err) {
+                alert('Failed to save goal');
+            }
+        } else {
+            alert('⚠️ Please enter both Goal Net Worth and Target Date');
+        }
+    };
+
+    const handleSave = async () => {
+        try {
+            setIsLoading(true);
+            const secondaryMappings = [
+                { type: 'GOLD', value: goals.commodityGrams, name: 'Gold Target' },
+                { type: 'PROPERTY', value: goals.propertyValue, name: 'Property Target' },
+                { type: 'STOCKS', value: goals.stocks, name: 'Stocks Target' },
+                { type: 'CASH', value: goals.cashAndBank, name: 'Cash Target' },
+                { type: 'BONDS', value: goals.bonds, name: 'Bonds Target' },
+                { type: 'INCOME', value: goals.monthlyIncome, name: 'Income Target' },
+            ];
+
+            const existingGoalsRes = await financialDataApi.goals.getAll();
+            const existingGoals = existingGoalsRes.data;
+
+            for (const map of secondaryMappings) {
+                if (map.value) {
+                    const existing = existingGoals.find((g: any) => g.type === map.type);
+                    const payload = {
+                        name: map.name,
+                        type: map.type,
+                        targetAmount: parseFloat(map.value),
+                        targetDate: activeGoal.targetDate ? new Date(activeGoal.targetDate).toISOString() : new Date().toISOString(),
+                    };
+
+                    if (existing) {
+                        await financialDataApi.goals.update(existing.id, payload);
+                    } else {
+                        await financialDataApi.goals.create(payload);
+                    }
+                }
+            }
+            alert('Goals saved successfully! 🎯');
+            fetchGoals();
+        } catch (err) {
+            alert('Failed to save secondary goals');
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     return (
@@ -118,7 +204,6 @@ export default function GoalsPage() {
                                     onChange={(e) => handleChange('commodityType', e.target.value)}
                                     className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 outline-none"
                                 >
-                                    <option value="">Select type</option>
                                     <option value="Gold">Gold</option>
                                     <option value="Silver">Silver</option>
                                     <option value="Others">Others</option>
@@ -163,7 +248,6 @@ export default function GoalsPage() {
                                     onChange={(e) => handleChange('propertyType', e.target.value)}
                                     className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
                                 >
-                                    <option value="">Select type</option>
                                     <option value="Apartment">Apartment</option>
                                     <option value="Villa">Villa</option>
                                     <option value="Land">Land</option>
@@ -301,54 +385,27 @@ export default function GoalsPage() {
                         </div>
                     </div>
 
-                    {/* Total Net Worth Goal */}
-                    <div className="bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl p-6 shadow-lg border border-blue-500 lg:col-span-2">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">
-                                🎯
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-white">Total Net Worth Target</h3>
-                                <p className="text-sm text-blue-100">Your ultimate financial goal</p>
-                            </div>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-white mb-2">
-                                Target Net Worth
-                            </label>
-                            <div className="relative">
-                                <input
-                                    type="number"
-                                    value={goals.totalNetWorth}
-                                    onChange={(e) => handleChange('totalNetWorth', e.target.value)}
-                                    placeholder="e.g., 5000000"
-                                    className="w-full px-4 py-3 rounded-xl border border-white/30 bg-white/10 text-white placeholder-white/50 focus:ring-2 focus:ring-white/50 outline-none backdrop-blur-sm"
-                                />
-                                <span className="absolute right-4 top-3.5 text-white/70 text-sm">{currency.code}</span>
-                            </div>
-                        </div>
-                    </div>
                 </div>
 
                 {/* Action Buttons */}
                 <div className="mt-8 flex gap-4">
                     <button
                         onClick={handleSave}
-                        className="flex-1 lg:flex-none px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors shadow-lg shadow-blue-600/20"
+                        disabled={isLoading}
+                        className="flex-1 lg:flex-none px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors shadow-lg shadow-blue-600/20 disabled:opacity-50"
                     >
-                        💾 Save Goals
+                        {isLoading ? 'Saving...' : '💾 Save Goals'}
                     </button>
                     <button
                         onClick={() => setGoals({
-                            commodityType: '',
+                            commodityType: 'Gold',
                             commodityGrams: '',
-                            propertyType: '',
+                            propertyType: 'Apartment',
                             propertyValue: '',
                             monthlyIncome: '',
                             cashAndBank: '',
                             stocks: '',
                             bonds: '',
-                            totalNetWorth: ''
                         })}
                         className="px-8 py-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-900 dark:text-white font-medium rounded-xl transition-colors"
                     >
@@ -403,13 +460,6 @@ export default function GoalsPage() {
                                     <div className="font-bold text-slate-900 dark:text-white">{currency.symbol} {parseInt(goals.bonds).toLocaleString()}</div>
                                 </div>
                             )}
-                            {goals.totalNetWorth && (
-                                <div className="text-center p-3 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/10 dark:to-purple-900/10 rounded-xl">
-                                    <div className="text-2xl mb-1">🎯</div>
-                                    <div className="text-sm text-slate-600 dark:text-slate-400">Net Worth</div>
-                                    <div className="font-bold text-slate-900 dark:text-white">{currency.symbol} {parseInt(goals.totalNetWorth).toLocaleString()}</div>
-                                </div>
-                            )}
                         </div>
                     </div>
                 )}
@@ -459,66 +509,69 @@ export default function GoalsPage() {
 
                     <button
                         onClick={saveActiveGoal}
-                        className="mt-6 w-full px-6 py-3 bg-white text-purple-600 font-bold rounded-xl hover:bg-purple-50 transition-colors shadow-lg"
+                        disabled={isLoading}
+                        className="mt-6 w-full px-6 py-3 bg-white text-purple-600 font-bold rounded-xl hover:bg-purple-50 transition-colors shadow-lg disabled:opacity-50"
                     >
-                        💾 Save Active Goal & Sync to Dashboard
+                        {isLoading ? 'Saving...' : '💾 Save Active Goal & Sync to Database'}
                     </button>
                 </div>
             </div>
 
             {/* Sticky Bottom Progress Card */}
-            {activeGoal.goalNetWorth && (
-                <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-emerald-600 to-green-600 shadow-2xl border-t-4 border-emerald-400 z-50">
-                    <div className="max-w-7xl mx-auto px-6 py-4">
-                        <div className="flex flex-wrap items-center justify-between gap-4">
-                            <div className="flex items-center gap-4">
-                                <div className="bg-white/20 p-3 rounded-xl">
-                                    <div className="text-2xl">🎯</div>
+            {
+                activeGoal.goalNetWorth && (
+                    <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-emerald-600 to-green-600 shadow-2xl border-t-4 border-emerald-400 z-50">
+                        <div className="max-w-7xl mx-auto px-6 py-4">
+                            <div className="flex flex-wrap items-center justify-between gap-4">
+                                <div className="flex items-center gap-4">
+                                    <div className="bg-white/20 p-3 rounded-xl">
+                                        <div className="text-2xl">🎯</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs text-emerald-100 uppercase tracking-wide">Active Goal</div>
+                                        <div className="text-xl font-bold text-white">Net Worth: {currency.symbol} {parseFloat(activeGoal.goalNetWorth || '0').toLocaleString()}</div>
+                                    </div>
                                 </div>
-                                <div>
-                                    <div className="text-xs text-emerald-100 uppercase tracking-wide">Active Goal</div>
-                                    <div className="text-xl font-bold text-white">Net Worth: {currency.symbol} {parseFloat(activeGoal.goalNetWorth || '0').toLocaleString()}</div>
-                                </div>
-                            </div>
 
-                            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                                <div className="text-center">
-                                    <div className="text-xs text-emerald-100">Current</div>
-                                    <div className="text-lg font-bold text-white">{currency.symbol} {currentNetWorth.toLocaleString()}</div>
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                    <div className="text-center">
+                                        <div className="text-xs text-emerald-100">Current</div>
+                                        <div className="text-lg font-bold text-white">{currency.symbol} {currentNetWorth.toLocaleString()}</div>
+                                    </div>
+                                    <div className="text-center">
+                                        <div className="text-xs text-emerald-100">Progress</div>
+                                        <div className="text-lg font-bold text-white">{progress.percentage.toFixed(1)}%</div>
+                                    </div>
+                                    <div className="text-center">
+                                        <div className="text-xs text-emerald-100">Remaining</div>
+                                        <div className="text-lg font-bold text-white">{currency.symbol} {Math.max(0, progress.remaining).toLocaleString()}</div>
+                                    </div>
+                                    <div className="text-center">
+                                        <div className="text-xs text-emerald-100">Months Left</div>
+                                        <div className="text-lg font-bold text-white">{progress.monthsLeft}</div>
+                                    </div>
+                                    <div className="text-center">
+                                        <div className="text-xs text-emerald-100">Monthly Required</div>
+                                        <div className="text-lg font-bold text-white">{currency.symbol} {Math.max(0, progress.monthlyRequired).toLocaleString()}</div>
+                                    </div>
                                 </div>
-                                <div className="text-center">
-                                    <div className="text-xs text-emerald-100">Progress</div>
-                                    <div className="text-lg font-bold text-white">{progress.percentage.toFixed(1)}%</div>
-                                </div>
-                                <div className="text-center">
-                                    <div className="text-xs text-emerald-100">Remaining</div>
-                                    <div className="text-lg font-bold text-white">{currency.symbol} {Math.max(0, progress.remaining).toLocaleString()}</div>
-                                </div>
-                                <div className="text-center">
-                                    <div className="text-xs text-emerald-100">Months Left</div>
-                                    <div className="text-lg font-bold text-white">{progress.monthsLeft}</div>
-                                </div>
-                                <div className="text-center">
-                                    <div className="text-xs text-emerald-100">Monthly Required</div>
-                                    <div className="text-lg font-bold text-white">{currency.symbol} {Math.max(0, progress.monthlyRequired).toLocaleString()}</div>
-                                </div>
-                            </div>
 
-                            <div className="w-full md:w-64">
-                                <div className="bg-emerald-800/50 rounded-full h-3 overflow-hidden">
-                                    <div
-                                        className="bg-white h-3 rounded-full transition-all"
-                                        style={{ width: `${Math.min(progress.percentage, 100)}%` }}
-                                    ></div>
-                                </div>
-                                <div className="text-xs text-emerald-100 mt-1 text-center">
-                                    Target: {activeGoal.targetDate && new Date(activeGoal.targetDate).toLocaleDateString()}
+                                <div className="w-full md:w-64">
+                                    <div className="bg-emerald-800/50 rounded-full h-3 overflow-hidden">
+                                        <div
+                                            className="bg-white h-3 rounded-full transition-all"
+                                            style={{ width: `${Math.min(progress.percentage, 100)}%` }}
+                                        ></div>
+                                    </div>
+                                    <div className="text-xs text-emerald-100 mt-1 text-center">
+                                        Target: {activeGoal.targetDate && new Date(activeGoal.targetDate).toLocaleDateString()}
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
         </div>
     );
 }

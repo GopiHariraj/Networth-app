@@ -55,6 +55,14 @@ export default function Calculator() {
         setOperation('');
     };
 
+    const handleBackspace = () => {
+        if (display.length > 1) {
+            setDisplay(display.slice(0, -1));
+        } else {
+            setDisplay('0');
+        }
+    };
+
     const handleDecimal = () => {
         if (!display.includes('.')) {
             setDisplay(display + '.');
@@ -65,7 +73,8 @@ export default function Calculator() {
         ['7', '8', '9', '÷'],
         ['4', '5', '6', '×'],
         ['1', '2', '3', '-'],
-        ['C', '0', '.', '+'],
+        ['⌫', '0', '.', '+'],
+        ['C'],
     ];
 
     return (
@@ -107,15 +116,16 @@ export default function Calculator() {
                                             key={btn}
                                             onClick={() => {
                                                 if (btn === 'C') clear();
+                                                else if (btn === '⌫') handleBackspace();
                                                 else if (btn === '.') handleDecimal();
                                                 else if (isOperation) handleOperation(btn);
                                                 else handleNumber(btn);
                                             }}
                                             className={`py-3 px-4 rounded-xl font-semibold transition-all ${isClear
-                                                    ? 'bg-red-500 hover:bg-red-600 text-white'
-                                                    : isOperation
-                                                        ? 'bg-blue-500 hover:bg-blue-600 text-white'
-                                                        : 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-900 dark:text-white'
+                                                ? 'bg-red-500 hover:bg-red-600 text-white'
+                                                : isOperation
+                                                    ? 'bg-blue-500 hover:bg-blue-600 text-white'
+                                                    : 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-900 dark:text-white'
                                                 }`}
                                         >
                                             {btn}

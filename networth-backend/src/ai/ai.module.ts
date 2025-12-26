@@ -5,8 +5,8 @@ import { AiController } from './ai.controller';
 import { PrismaModule } from '../common/prisma/prisma.module';
 
 @Module({
-    imports: [ConfigModule, PrismaModule],
-    controllers: [AiController],
-    providers: [AiService],
+  imports: [ConfigModule, PrismaModule],
+  controllers: [AiController],
+  providers: [AiService],
 })
-export class AiModule { }
+export class AiModule {}

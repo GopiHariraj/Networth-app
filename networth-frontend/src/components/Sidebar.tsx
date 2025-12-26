@@ -74,6 +74,7 @@ export default function Sidebar({ isOpen = true, isCollapsed = false, onToggleOp
                         <Link
                             key={item.path}
                             href={item.path}
+                            prefetch={true}
                             onClick={() => onToggleOpen?.()} // Close on mobile when link clicked
                             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors relative group ${pathname === item.path
                                 ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 font-medium'

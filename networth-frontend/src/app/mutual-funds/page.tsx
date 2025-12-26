@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useCurrency } from '../../lib/currency-context';
 import { useNetWorth } from '../../lib/networth-context';
+import { financialDataApi } from '../../lib/api/financial-data';
 import { PieChart, Pie, Cell, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 interface MutualFund {
@@ -25,10 +26,12 @@ const COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899'
 
 export default function MutualFundsPage() {
     const { currency } = useCurrency();
-    const { updateMutualFunds } = useNetWorth();
+    const { refreshNetWorth } = useNetWorth();
     const [funds, setFunds] = useState<MutualFund[]>([]);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState('Current Value');
+    const [isLoading, setIsLoading] = useState(false);
+
     const [formData, setFormData] = useState({
         fundName: '',
         provider: '',
@@ -43,57 +46,51 @@ export default function MutualFundsPage() {
         notes: ''
     });
 
-    // Load from localStorage
-    useEffect(() => {
-        const saved = localStorage.getItem('networth-mutualfunds');
-        if (saved) {
-            try {
-                setFunds(JSON.parse(saved));
-            } catch (e) {
-                console.error('Failed to load mutual funds', e);
-            }
+    const fetchFunds = async () => {
+        try {
+            setIsLoading(true);
+            const res = await financialDataApi.mutualFunds.getAll();
+            setFunds(res.data.map((f: any) => ({
+                id: f.id,
+                fundName: f.name,
+                provider: f.provider,
+                folioNumber: f.folioNumber,
+                fundType: f.type,
+                units: f.units ? parseFloat(f.units) : undefined,
+                currentNav: f.nav ? parseFloat(f.nav) : undefined,
+                currentValue: parseFloat(f.currentValue),
+                investedAmount: parseFloat(f.investedAmount),
+                currency: 'AED',
+                lastUpdated: f.updatedAt,
+                notes: f.notes
+            })));
+        } catch (e) {
+            console.error('Failed to load mutual funds', e);
+        } finally {
+            setIsLoading(false);
         }
-    }, []);
-
-    // Save to localStorage AND update NetWorthContext
-    const saveFunds = (newFunds: MutualFund[]) => {
-        setFunds(newFunds);
-        localStorage.setItem('networth-mutualfunds', JSON.stringify(newFunds));
-
-        // Update NetWorthContext for Dashboard and Goals integration
-        updateMutualFunds(newFunds.map(f => ({
-            id: f.id,
-            name: f.fundName,
-            value: f.currentValue
-        })));
     };
 
-    // Calculate values
+    useEffect(() => {
+        fetchFunds();
+    }, []);
+
     const getGainLoss = (currentValue: number, invested: number) => currentValue - invested;
     const getPercentReturn = (gainLoss: number, invested: number) => invested > 0 ? (gainLoss / invested) * 100 : 0;
 
-    // Summary calculations
     const totalValue = funds.reduce((sum, f) => sum + f.currentValue, 0);
     const totalInvested = funds.reduce((sum, f) => sum + f.investedAmount, 0);
     const totalGainLoss = totalValue - totalInvested;
     const totalPercentReturn = totalInvested > 0 ? (totalGainLoss / totalInvested) * 100 : 0;
 
-    // Handle form submission
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        // Validation
         if (!formData.fundName || !formData.provider || !formData.investedAmount) {
             alert('Please fill in Fund Name, Provider, and Invested Amount');
             return;
         }
 
-        if (parseFloat(formData.investedAmount) <= 0) {
-            alert('Invested Amount must be greater than 0');
-            return;
-        }
-
-        // Check if either (Units + NAV) or Current Value is provided
         const hasUnitsAndNav = formData.units && formData.currentNav;
         const hasCurrentValue = formData.currentValue;
 
@@ -102,7 +99,6 @@ export default function MutualFundsPage() {
             return;
         }
 
-        // Calculate current value
         let calculatedValue = 0;
         if (hasUnitsAndNav) {
             calculatedValue = parseFloat(formData.units) * parseFloat(formData.currentNav);
@@ -110,61 +106,34 @@ export default function MutualFundsPage() {
             calculatedValue = parseFloat(formData.currentValue);
         }
 
-        if (editingId) {
-            const updated = funds.map(f =>
-                f.id === editingId
-                    ? {
-                        ...f,
-                        fundName: formData.fundName,
-                        provider: formData.provider,
-                        folioNumber: formData.folioNumber,
-                        fundType: formData.fundType,
-                        units: formData.units ? parseFloat(formData.units) : undefined,
-                        currentNav: formData.currentNav ? parseFloat(formData.currentNav) : undefined,
-                        currentValue: calculatedValue,
-                        investedAmount: parseFloat(formData.investedAmount),
-                        currency: formData.currency,
-                        lastUpdated: formData.lastUpdated,
-                        notes: formData.notes
-                    }
-                    : f
-            );
-            saveFunds(updated);
-            setEditingId(null);
-            alert('✅ Mutual fund updated successfully!');
-        } else {
-            const newFund: MutualFund = {
-                id: Date.now().toString(),
-                fundName: formData.fundName,
-                provider: formData.provider,
-                folioNumber: formData.folioNumber,
-                fundType: formData.fundType,
-                units: formData.units ? parseFloat(formData.units) : undefined,
-                currentNav: formData.currentNav ? parseFloat(formData.currentNav) : undefined,
-                currentValue: calculatedValue,
-                investedAmount: parseFloat(formData.investedAmount),
-                currency: formData.currency,
-                lastUpdated: formData.lastUpdated,
-                notes: formData.notes
-            };
-            saveFunds([...funds, newFund]);
-            alert('✅ Mutual fund added successfully!');
-        }
+        const payload = {
+            name: formData.fundName,
+            provider: formData.provider,
+            folioNumber: formData.folioNumber,
+            type: formData.fundType,
+            units: formData.units ? parseFloat(formData.units) : undefined,
+            nav: formData.currentNav ? parseFloat(formData.currentNav) : undefined,
+            currentValue: calculatedValue,
+            investedAmount: parseFloat(formData.investedAmount),
+            notes: formData.notes
+        };
 
-        // Reset form
-        setFormData({
-            fundName: '',
-            provider: '',
-            folioNumber: '',
-            fundType: 'Equity',
-            units: '',
-            currentNav: '',
-            currentValue: '',
-            investedAmount: '',
-            currency: 'AED',
-            lastUpdated: new Date().toISOString().split('T')[0],
-            notes: ''
-        });
+        try {
+            if (editingId) {
+                await financialDataApi.mutualFunds.update(editingId, payload);
+                alert('✅ Mutual fund updated successfully!');
+            } else {
+                await financialDataApi.mutualFunds.create(payload);
+                alert('✅ Mutual fund added successfully!');
+            }
+
+            await fetchFunds();
+            await refreshNetWorth();
+            setEditingId(null);
+            handleCancel();
+        } catch (err) {
+            alert('Failed to save mutual fund');
+        }
     };
 
     const handleEdit = (fund: MutualFund) => {
@@ -179,16 +148,22 @@ export default function MutualFundsPage() {
             currentValue: (!fund.units || !fund.currentNav) ? fund.currentValue.toString() : '',
             investedAmount: fund.investedAmount.toString(),
             currency: fund.currency,
-            lastUpdated: fund.lastUpdated,
+            lastUpdated: fund.lastUpdated.split('T')[0],
             notes: fund.notes || ''
         });
         setActiveTab('Add/Edit Fund');
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
-    const handleDelete = (id: string) => {
+    const handleDelete = async (id: string) => {
         if (confirm('Are you sure you want to delete this mutual fund?')) {
-            saveFunds(funds.filter(f => f.id !== id));
+            try {
+                await financialDataApi.mutualFunds.delete(id);
+                await fetchFunds();
+                await refreshNetWorth();
+            } catch (err) {
+                alert('Failed to delete mutual fund');
+            }
         }
     };
 
@@ -209,7 +184,6 @@ export default function MutualFundsPage() {
         });
     };
 
-    // Charts data
     const allocationData = FUND_TYPES.map(type => ({
         name: type,
         value: funds.filter(f => f.fundType === type)
@@ -253,16 +227,16 @@ export default function MutualFundsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
                     <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-6 text-white shadow-lg">
                         <div className="text-sm opacity-90">Total Value</div>
-                        <div className="text-3xl font-bold mt-2">د.إ {totalValue.toLocaleString()}</div>
+                        <div className="text-3xl font-bold mt-2">{currency.symbol} {totalValue.toLocaleString()}</div>
                     </div>
                     <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
                         <div className="text-sm text-slate-500">Total Invested</div>
-                        <div className="text-2xl font-bold text-slate-900 dark:text-white mt-2">د.إ {totalInvested.toLocaleString()}</div>
+                        <div className="text-2xl font-bold text-slate-900 dark:text-white mt-2">{currency.symbol} {totalInvested.toLocaleString()}</div>
                     </div>
                     <div className={`rounded-2xl p-6 shadow-sm border ${totalGainLoss >= 0 ? 'bg-green-50 border-green-200 dark:bg-green-900/10 dark:border-green-800' : 'bg-red-50 border-red-200 dark:bg-red-900/10 dark:border-red-800'}`}>
                         <div className="text-sm text-slate-500">Gain/Loss</div>
                         <div className={`text-2xl font-bold mt-2 ${totalGainLoss >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                            {totalGainLoss >= 0 ? '+' : ''}د.إ {totalGainLoss.toLocaleString()}
+                            {totalGainLoss >= 0 ? '+' : ''}{currency.symbol} {totalGainLoss.toLocaleString()}
                         </div>
                     </div>
                     <div className={`rounded-2xl p-6 shadow-sm border ${totalPercentReturn >= 0 ? 'bg-green-50 border-green-200 dark:bg-green-900/10 dark:border-green-800' : 'bg-red-50 border-red-200 dark:bg-red-900/10 dark:border-red-800'}`}>
@@ -285,6 +259,7 @@ export default function MutualFundsPage() {
                         topFundsData={topFundsData}
                         totalValue={totalValue}
                         COLORS={COLORS}
+                        currency={currency}
                     />
                 )}
 
@@ -297,6 +272,7 @@ export default function MutualFundsPage() {
                         totalValue={totalValue}
                         totalGainLoss={totalGainLoss}
                         totalPercentReturn={totalPercentReturn}
+                        currency={currency}
                     />
                 )}
 
@@ -310,6 +286,8 @@ export default function MutualFundsPage() {
                         getGainLoss={getGainLoss}
                         getPercentReturn={getPercentReturn}
                         FUND_TYPES={FUND_TYPES}
+                        currency={currency}
+                        isLoading={isLoading}
                     />
                 )}
             </div>
@@ -318,7 +296,7 @@ export default function MutualFundsPage() {
 }
 
 // Current Value Tab Component
-function CurrentValueTab({ funds, getGainLoss, getPercentReturn, handleEdit, handleDelete, allocationData, topFundsData, totalValue, COLORS }: any) {
+function CurrentValueTab({ funds, getGainLoss, getPercentReturn, handleEdit, handleDelete, allocationData, topFundsData, totalValue, COLORS, currency }: any) {
     return (
         <div className="space-y-8">
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
@@ -358,7 +336,7 @@ function CurrentValueTab({ funds, getGainLoss, getPercentReturn, handleEdit, han
                                                     </div>
                                                     <div>
                                                         <div className="text-slate-400">Current NAV</div>
-                                                        <div className="font-semibold text-slate-700 dark:text-slate-300">د.إ {fund.currentNav.toLocaleString()}</div>
+                                                        <div className="font-semibold text-slate-700 dark:text-slate-300">{currency.symbol} {fund.currentNav.toLocaleString()}</div>
                                                     </div>
                                                 </div>
                                             ) : (
@@ -371,19 +349,19 @@ function CurrentValueTab({ funds, getGainLoss, getPercentReturn, handleEdit, han
                                                 <div>
                                                     <div className="text-xs text-slate-400 mb-1">Current Value</div>
                                                     <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                                                        د.إ {fund.currentValue.toLocaleString()}
+                                                        {currency.symbol} {fund.currentValue.toLocaleString()}
                                                     </div>
                                                 </div>
                                                 <div>
                                                     <div className="text-xs text-slate-400 mb-1">Invested</div>
                                                     <div className="text-lg font-semibold text-slate-700 dark:text-slate-300">
-                                                        د.إ {fund.investedAmount.toLocaleString()}
+                                                        {currency.symbol} {fund.investedAmount.toLocaleString()}
                                                     </div>
                                                 </div>
                                                 <div>
                                                     <div className="text-xs text-slate-400 mb-1">Gain/Loss</div>
                                                     <div className={`text-lg font-bold ${gainLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                                        {gainLoss >= 0 ? '+' : ''}د.إ {gainLoss.toLocaleString()}
+                                                        {gainLoss >= 0 ? '+' : ''}{currency.symbol} {gainLoss.toLocaleString()}
                                                     </div>
                                                 </div>
                                                 <div>
@@ -438,7 +416,7 @@ function CurrentValueTab({ funds, getGainLoss, getPercentReturn, handleEdit, han
                                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                         ))}
                                     </Pie>
-                                    <Tooltip formatter={(value: number) => `د.إ ${value.toLocaleString()}`} />
+                                    <Tooltip formatter={(value: number) => `${currency.symbol} ${value.toLocaleString()}`} />
                                     <Legend />
                                 </PieChart>
                             </ResponsiveContainer>
@@ -457,7 +435,7 @@ function CurrentValueTab({ funds, getGainLoss, getPercentReturn, handleEdit, han
                                     <CartesianGrid strokeDasharray="3 3" />
                                     <XAxis type="number" />
                                     <YAxis dataKey="name" type="category" width={120} />
-                                    <Tooltip formatter={(value: number) => `د.إ ${value.toLocaleString()}`} />
+                                    <Tooltip formatter={(value: number) => `${currency.symbol} ${value.toLocaleString()}`} />
                                     <Bar dataKey="value" fill="#3b82f6" />
                                 </BarChart>
                             </ResponsiveContainer>
@@ -474,7 +452,7 @@ function CurrentValueTab({ funds, getGainLoss, getPercentReturn, handleEdit, han
 }
 
 // Profit & Loss Tab Component
-function ProfitLossTab({ funds, getGainLoss, getPercentReturn, totalInvested, totalValue, totalGainLoss, totalPercentReturn }: any) {
+function ProfitLossTab({ funds, getGainLoss, getPercentReturn, totalInvested, totalValue, totalGainLoss, totalPercentReturn, currency }: any) {
     return (
         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
             <div className="p-6 border-b border-slate-200 dark:border-slate-700">
@@ -510,13 +488,13 @@ function ProfitLossTab({ funds, getGainLoss, getPercentReturn, totalInvested, to
                                             <div className="text-xs text-slate-500">{fund.fundType}</div>
                                         </td>
                                         <td className="px-6 py-4 text-right text-slate-700 dark:text-slate-300">
-                                            د.إ {fund.investedAmount.toLocaleString()}
+                                            {currency.symbol} {fund.investedAmount.toLocaleString()}
                                         </td>
                                         <td className="px-6 py-4 text-right font-semibold text-slate-900 dark:text-white">
-                                            د.إ {fund.currentValue.toLocaleString()}
+                                            {currency.symbol} {fund.currentValue.toLocaleString()}
                                         </td>
                                         <td className={`px-6 py-4 text-right font-bold ${gainLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                            {gainLoss >= 0 ? '+' : ''}د.إ {gainLoss.toLocaleString()}
+                                            {gainLoss >= 0 ? '+' : ''}{currency.symbol} {gainLoss.toLocaleString()}
                                         </td>
                                         <td className={`px-6 py-4 text-right font-bold ${percentReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                             {percentReturn >= 0 ? '+' : ''}{percentReturn.toFixed(2)}%
@@ -534,10 +512,10 @@ function ProfitLossTab({ funds, getGainLoss, getPercentReturn, totalInvested, to
                             })}
                             <tr className="bg-slate-100 dark:bg-slate-800 font-bold">
                                 <td className="px-6 py-4">TOTAL</td>
-                                <td className="px-6 py-4 text-right">د.إ {totalInvested.toLocaleString()}</td>
-                                <td className="px-6 py-4 text-right">د.إ {totalValue.toLocaleString()}</td>
+                                <td className="px-6 py-4 text-right">{currency.symbol} {totalInvested.toLocaleString()}</td>
+                                <td className="px-6 py-4 text-right">{currency.symbol} {totalValue.toLocaleString()}</td>
                                 <td className={`px-6 py-4 text-right ${totalGainLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {totalGainLoss >= 0 ? '+' : ''}د.إ {totalGainLoss.toLocaleString()}
+                                    {totalGainLoss >= 0 ? '+' : ''}{currency.symbol} {totalGainLoss.toLocaleString()}
                                 </td>
                                 <td className={`px-6 py-4 text-right ${totalPercentReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                     {totalPercentReturn >= 0 ? '+' : ''}{totalPercentReturn.toFixed(2)}%
@@ -553,7 +531,7 @@ function ProfitLossTab({ funds, getGainLoss, getPercentReturn, totalInvested, to
 }
 
 // Add/Edit Fund Tab Component
-function AddEditFundTab({ formData, setFormData, editingId, handleSubmit, handleCancel, getCurrentValue, getGainLoss, getPercentReturn, FUND_TYPES }: any) {
+function AddEditFundTab({ formData, setFormData, editingId, handleSubmit, handleCancel, getGainLoss, getPercentReturn, FUND_TYPES, currency, isLoading }: any) {
     return (
         <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700 max-w-3xl mx-auto">
             <h2 className="text-xl font-bold mb-6 text-slate-900 dark:text-white">
@@ -681,13 +659,13 @@ function AddEditFundTab({ formData, setFormData, editingId, handleSubmit, handle
                                 <div>
                                     <div className="text-slate-600 dark:text-slate-400">Current Value</div>
                                     <div className="font-bold text-slate-900 dark:text-white text-lg">
-                                        د.إ {currentVal.toLocaleString()}
+                                        {currency.symbol} {currentVal.toLocaleString()}
                                     </div>
                                 </div>
                                 <div>
                                     <div className="text-slate-600 dark:text-slate-400">Gain/Loss</div>
                                     <div className={`font-bold text-lg ${gainLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                        {gainLoss >= 0 ? '+' : ''}د.إ {gainLoss.toLocaleString()}
+                                        {gainLoss >= 0 ? '+' : ''}{currency.symbol} {gainLoss.toLocaleString()}
                                     </div>
                                 </div>
                                 <div>
@@ -709,15 +687,6 @@ function AddEditFundTab({ formData, setFormData, editingId, handleSubmit, handle
                             value={formData.lastUpdated}
                             onChange={(e) => setFormData({ ...formData, lastUpdated: e.target.value })}
                             className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Currency</label>
-                        <input
-                            type="text"
-                            value={formData.currency}
-                            disabled
-                            className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 outline-none"
                         />
                     </div>
                 </div>
@@ -746,9 +715,10 @@ function AddEditFundTab({ formData, setFormData, editingId, handleSubmit, handle
                     )}
                     <button
                         type="submit"
-                        className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-600/20"
+                        disabled={isLoading}
+                        className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-600/20 disabled:opacity-50"
                     >
-                        {editingId ? '💾 Update' : '➕ Add Fund'}
+                        {isLoading ? 'Processing...' : (editingId ? '💾 Update' : '➕ Add Fund')}
                     </button>
                 </div>
             </form>

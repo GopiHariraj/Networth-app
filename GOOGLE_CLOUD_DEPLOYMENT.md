@@ -123,6 +123,10 @@ sudo chmod +x /usr/local/bin/docker-compose
 # Install Git
 sudo apt install git -y
 
+# Install Node.js (v18 LTS)
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt install -y nodejs
+
 # Install Nginx (for reverse proxy)
 sudo apt install nginx -y
 
@@ -130,11 +134,16 @@ sudo apt install nginx -y
 docker --version
 docker-compose --version
 git --version
+node -v
+npm -v
 nginx -v
 
 # Logout and login again for docker group to take effect
 exit
 ```
+
+> [!NOTE]
+> Technically, if you are using Docker, Node.js is not strictly required on the host VM as the application runs inside containers. However, installing it on the host is highly recommended for debugging, running database scripts, or using tools like Prisma Studio locally.
 
 Re-connect to your VM after logging out.
 
