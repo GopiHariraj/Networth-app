@@ -17,6 +17,11 @@ export class ExpensesController {
     return this.expensesService.findAll(req.user.id);
   }
 
+  @Get('insights')
+  async getInsights(@Request() req: any) {
+    return this.expensesService.getInsights(req.user.id);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string, @Request() req: any) {
     return this.expensesService.findOne(id, req.user.id);

@@ -62,7 +62,15 @@ export const expensesApi = {
     create: (data: any) => apiClient.post('/expenses', data),
     update: (id: string, data: any) => apiClient.put(`/expenses/${id}`, data),
     delete: (id: string) => apiClient.delete(`/expenses/${id}`),
+    getInsights: () => apiClient.get('/expenses/insights'),
     parseAi: (text: string) => apiClient.post('/expenses/ai-parse-text', { text }),
+};
+
+// Expense Categories API
+export const expenseCategoriesApi = {
+    getAll: () => apiClient.get('/expense-categories'),
+    create: (data: any) => apiClient.post('/expense-categories', data),
+    delete: (id: string) => apiClient.delete(`/expense-categories/${id}`),
 };
 
 // Goals API
@@ -92,5 +100,6 @@ export const financialDataApi = {
     mutualFunds: mutualFundAssetsApi,
     creditCards: creditCardsApi,
     expenses: expensesApi,
+    expenseCategories: expenseCategoriesApi,
     goals: goalsApi,
 };

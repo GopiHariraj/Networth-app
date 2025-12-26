@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { ConfigService } from '@nestjs/config';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
@@ -13,7 +14,10 @@ import { Role } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    private configService: ConfigService,
+  ) { }
 
   async generateResetLink(userId: string) {
     // Generate secure random token
@@ -23,7 +27,6 @@ export class UsersService {
     // Check if user exists in DB first
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
-      // Fallback for mock users? No, they can't have links.
       throw new UnauthorizedException(
         'User not found in database (Mock users cannot be reset via link)',
       );
@@ -38,10 +41,15 @@ export class UsersService {
       },
     });
 
+    // Hardcoded production URL for reliability
+    const frontendUrl = 'https://fortstec.com';
+
+    const resetLink = `${frontendUrl}/auth/reset-password?token=${token}`;
+    console.log(`[UsersService] Generated reset link for user ${userId}: ${resetLink}`);
+
     // In a real app, send email. Here, return link.
-    // Assuming frontend runs on fortstec.com
     return {
-      resetLink: `https://fortstec.com/auth/reset-password?token=${token}`,
+      resetLink,
       token,
     };
   }

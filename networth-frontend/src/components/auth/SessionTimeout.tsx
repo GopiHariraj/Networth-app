@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../lib/auth-context';
 import { usePathname } from 'next/navigation';
 
-const INACTIVITY_TIMEOUT = 15 * 60 * 1000; // 15 minutes
+const INACTIVITY_TIMEOUT = 2 * 60 * 60 * 1000; // 2 hours
 const WARNING_BEFORE = 30 * 1000; // 30 seconds
 
 export default function SessionTimeout() {
